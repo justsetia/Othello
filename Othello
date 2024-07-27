@@ -1,0 +1,237 @@
+import numpy as np
+import pygame
+import sys
+
+# Constants
+EMPTY = 0
+BLACK = 1
+WHITE = 2
+DIRECTIONS = [(-1, -1), (-1, 0), (-1, 1), (0, -1), (0, 1), (1, -1), (1, 0), (1, 1)]
+
+# Pygame settings
+WIDTH, HEIGHT = 600, 600
+SQUARE_SIZE = WIDTH // 8
+LINE_COLOR = (0, 0, 0)
+BLACK_COLOR = (0, 0, 0)
+WHITE_COLOR = (255, 255, 255)
+GREEN_COLOR = (34, 139, 34)
+SUGGESTION_COLOR = (173, 255, 47)
+BUTTON_COLOR = (70, 130, 180)
+BUTTON_HOVER_COLOR = (100, 149, 237)
+BUTTON_TEXT_COLOR = WHITE_COLOR
+
+pygame.init()
+screen = pygame.display.set_mode((WIDTH, HEIGHT))
+pygame.display.set_caption('Othello')
+
+font = pygame.font.SysFont(None, 48)
+button_font = pygame.font.SysFont(None, 36)
+
+
+def opponent(player):
+    return BLACK if player == WHITE else WHITE
+
+
+def is_valid_move(board, row, col, player):
+    if board[row, col] != EMPTY:
+        return False
+
+    for direction in DIRECTIONS:
+        r, c = row + direction[0], col + direction[1]
+        if not (0 <= r < 8 and 0 <= c < 8):
+            continue
+        if board[r, c] == opponent(player):
+            while 0 <= r < 8 and 0 <= c < 8:
+                r += direction[0]
+                c += direction[1]
+                if not (0 <= r < 8 and 0 <= c < 8):
+                    break
+                if board[r, c] == player:
+                    return True
+                if board[r, c] == EMPTY:
+                    break
+    return False
+
+
+def get_valid_moves(board, player):
+    valid_moves = [(r, c) for r in range(8) for c in range(8) if is_valid_move(board, r, c, player)]
+    return valid_moves
+
+
+def make_move(board, row, col, player):
+    board[row, col] = player
+    for direction in DIRECTIONS:
+        r, c = row + direction[0], col + direction[1]
+        pieces_to_flip = []
+        while 0 <= r < 8 and 0 <= c < 8 and board[r, c] == opponent(player):
+            pieces_to_flip.append((r, c))
+            r += direction[0]
+            c += direction[1]
+        if 0 <= r < 8 and 0 <= c < 8 and board[r, c] == player:
+            for rr, cc in pieces_to_flip:
+                board[rr, cc] = player
+
+
+def score(board, player):
+    return np.sum(board == player) - np.sum(board == opponent(player))
+
+
+def minimax(board, depth, alpha, beta, maximizing_player, player):
+    valid_moves = get_valid_moves(board, player)
+    if depth == 0 or not valid_moves:
+        return score(board, player), None
+
+    best_move = None
+    if maximizing_player:
+        max_eval = -float('inf')
+        for move in valid_moves:
+            new_board = board.copy()
+            make_move(new_board, move[0], move[1], player)
+            eval, _ = minimax(new_board, depth - 1, alpha, beta, False, opponent(player))
+            if eval > max_eval:
+                max_eval = eval
+                best_move = move
+            alpha = max(alpha, eval)
+            if beta <= alpha:
+                break
+        return max_eval, best_move
+    else:
+        min_eval = float('inf')
+        for move in valid_moves:
+            new_board = board.copy()
+            make_move(new_board, move[0], move[1], player)
+            eval, _ = minimax(new_board, depth - 1, alpha, beta, True, opponent(player))
+            if eval < min_eval:
+                min_eval = eval
+                best_move = move
+            beta = min(beta, eval)
+            if beta <= alpha:
+                break
+        return min_eval, best_move
+
+
+def draw_board(board, valid_moves, suggestions=False):
+    screen.fill(GREEN_COLOR)
+    for row in range(8):
+        for col in range(8):
+            pygame.draw.rect(screen, LINE_COLOR, (col * SQUARE_SIZE, row * SQUARE_SIZE, SQUARE_SIZE, SQUARE_SIZE), 1)
+            if board[row, col] == BLACK:
+                pygame.draw.circle(screen, BLACK_COLOR,
+                                   (col * SQUARE_SIZE + SQUARE_SIZE // 2, row * SQUARE_SIZE + SQUARE_SIZE // 2),
+                                   SQUARE_SIZE // 2 - 5)
+            elif board[row, col] == WHITE:
+                pygame.draw.circle(screen, WHITE_COLOR,
+                                   (col * SQUARE_SIZE + SQUARE_SIZE // 2, row * SQUARE_SIZE + SQUARE_SIZE // 2),
+                                   SQUARE_SIZE // 2 - 5)
+
+    if suggestions:
+        for move in valid_moves:
+            pygame.draw.circle(screen, SUGGESTION_COLOR,
+                               (move[1] * SQUARE_SIZE + SQUARE_SIZE // 2, move[0] * SQUARE_SIZE + SQUARE_SIZE // 2),
+                               SQUARE_SIZE // 2 - 5)
+
+    pygame.display.flip()
+
+
+def draw_end_screen(winner_text, score_text):
+    screen.fill(GREEN_COLOR)
+    text_surface = font.render(winner_text, True, LINE_COLOR)
+    score_surface = font.render(score_text, True, LINE_COLOR)
+    text_rect = text_surface.get_rect(center=(WIDTH // 2, HEIGHT // 2 - 50))
+    score_rect = score_surface.get_rect(center=(WIDTH // 2, HEIGHT // 2))
+    screen.blit(text_surface, text_rect)
+    screen.blit(score_surface, score_rect)
+
+    back_button_text = button_font.render("Back to Main Menu", True, BUTTON_TEXT_COLOR)
+    back_button_rect = back_button_text.get_rect(center=(WIDTH // 2, HEIGHT // 2 + 50))
+    pygame.draw.rect(screen, BUTTON_COLOR, back_button_rect.inflate(20, 10))
+    screen.blit(back_button_text, back_button_rect)
+    pygame.display.flip()
+
+    return back_button_rect
+
+
+def main(single_player):
+    board = np.zeros((8, 8), dtype=int)
+    board[3, 3] = board[4, 4] = WHITE
+    board[3, 4] = board[4, 3] = BLACK
+
+    current_player = BLACK
+    game_over = False
+
+    while True:
+        if game_over:
+            black_score = np.sum(board == BLACK)
+            white_score = np.sum(board == WHITE)
+            if black_score > white_score:
+                result_text = "Black wins!"
+            elif white_score > black_score:
+                result_text = "White wins!"
+            else:
+                result_text = "It's a tie!"
+            result_text += f" Score: B {black_score} - W {white_score}"
+            back_button_rect = draw_end_screen(result_text, result_text)
+
+            while True:
+                for event in pygame.event.get():
+                    if event.type == pygame.QUIT:
+                        pygame.quit()
+                        sys.exit()
+                    elif event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
+                        if back_button_rect.collidepoint(event.pos):
+                            return
+                pygame.display.flip()
+
+        valid_moves = get_valid_moves(board, current_player)
+        if not valid_moves:
+            if not get_valid_moves(board, opponent(current_player)):
+                game_over = True
+            current_player = opponent(current_player)
+            continue
+
+        draw_board(board, valid_moves, suggestions=True)
+
+        if current_player == BLACK or not single_player:
+            for event in pygame.event.get():
+                if event.type == pygame.QUIT:
+                    pygame.quit()
+                    sys.exit()
+                elif event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
+                    x, y = event.pos
+                    row, col = y // SQUARE_SIZE, x // SQUARE_SIZE
+                    if (row, col) in valid_moves:
+                        make_move(board, row, col, current_player)
+                        current_player = opponent(current_player)
+        else:
+            _, best_move = minimax(board, 4, -float('inf'), float('inf'), True, current_player)
+            make_move(board, best_move[0], best_move[1], current_player)
+            current_player = opponent(current_player)
+
+
+def main_menu():
+    screen.fill(GREEN_COLOR)
+    one_player_text = font.render("One Player", True, LINE_COLOR)
+    two_player_text = font.render("Two Players", True, LINE_COLOR)
+    one_player_rect = one_player_text.get_rect(center=(WIDTH // 2, HEIGHT // 2 - 50))
+    two_player_rect = two_player_text.get_rect(center=(WIDTH // 2, HEIGHT // 2 + 50))
+    screen.blit(one_player_text, one_player_rect)
+    screen.blit(two_player_text, two_player_rect)
+    pygame.display.flip()
+
+    while True:
+        for event in pygame.event.get():
+            if event.type == pygame.QUIT:
+                pygame.quit()
+                sys.exit()
+            elif event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
+                x, y = event.pos
+                if one_player_rect.collidepoint(x, y):
+                    main(single_player=True)
+                    main_menu()
+                elif two_player_rect.collidepoint(x, y):
+                    main(single_player=False)
+                    main_menu()
+
+
+if __name__ == "__main__":
+    main_menu()
